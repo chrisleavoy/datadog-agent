@@ -18,6 +18,8 @@ stages:
   - deps_build
   - deps_fetch
   - source_test
+  - functional_test
+  - functional_test_cleanup
   - binary_build
   - integration_test
   - package_build
@@ -142,6 +144,9 @@ variables:
 
 .if_not_test_kitchen_deploy: &if_not_test_kitchen_deploy
   if: $CI_COMMIT_BRANCH != "master" && $CI_COMMIT_TAG == null && $DEPLOY_AGENT != "true" && $CI_PIPELINE_SOURCE != "web" && $CI_PIPELINE_SOURCE != "api"
+
+.if_test_kitchen_security_agent: &if_test_kitchen_security_agent
+  if: $CI_MERGE_REQUEST_LABELS =~ /.*agent-security.*/
 
 # true only on deploys and when RELEASE_VERSION_X is NOT "nightly". In this setting
 # we are building either a new tagged version of the agent (an RC for example).
@@ -1940,6 +1945,16 @@ deploy_windows_testing-a7:
     - .kitchen_datadog_iot_agent_flavor
     - .kitchen_azure_location_north_central_us
 
+trigger_kitchen_functional_test:
+  image: 486234852809.dkr.ecr.us-east-1.amazonaws.com/ci/datadog-agent-builders/dd-agent-testing:$DATADOG_AGENT_BUILDERS
+  tags: [ "runner:docker", "size:large" ]
+  rules:
+    - when: manual
+      allow_failure: true
+  needs: []
+  script: [ "# noop" ]
+  stage: source_test
+
 .kitchen_test_security_agent:
   script:
     - bash -l tasks/run-test-kitchen.sh security-agent-test $AGENT_MAJOR_VERSION
@@ -1948,13 +1963,13 @@ deploy_windows_testing-a7:
     - .kitchen_azure_location_north_central_us
   <<: *kitchen_common
   rules:
-    - when: manual
+    - when: always
       allow_failure: true
-    - if: '$CI_MERGE_REQUEST_LABELS =~ /.*agent-security.*/'
+  needs: [ "trigger_kitchen_functional_test", "tests_ebpf" ]
   variables:
     AGENT_MAJOR_VERSION: 7
     DD_PIPELINE_ID: $CI_PIPELINE_ID-a7
-  stage: integration_test
+  stage: functional_test
 
 .kitchen_test_windows_installer_agent:
   extends:
@@ -2513,6 +2528,20 @@ testkitchen_cleanup_azure-a7:
   variables:
     DD_PIPELINE_ID: $CI_PIPELINE_ID-a7
   <<: *kitchen_cleanup_azure_common
+
+cleanup_kitchen_functional_test:
+  <<: *kitchen_cleanup_azure_common
+  rules:
+    - when: always
+      allow_failure: true
+  stage: functional_test_cleanup
+  needs:
+    - kitchen_centos_security_agent
+    - kitchen_debian_security_agent
+    - kitchen_suse_security_agent
+    - kitchen_ubuntu_security_agent
+  variables:
+    DD_PIPELINE_ID: $CI_PIPELINE_ID-a7
 
 #
 # pkg_metrics: send metrics about packages
